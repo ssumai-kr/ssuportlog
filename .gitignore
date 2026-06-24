@@ -1,6 +1,5 @@
 repo/
 output/
-config/periods.json
 __pycache__/
 *.pyc
 .venv/

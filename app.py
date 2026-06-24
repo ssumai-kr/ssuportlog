@@ -102,9 +102,13 @@ def attach_diffs(commits: list[dict], max_commits: int = MAX_DIFF_COMMITS) -> li
 
 @app.route("/")
 def index():
-    periods = load_periods()
-    commits = get_all_commits()
-    authors = sorted({c["author"] for c in commits})
+    try:
+        periods = load_periods()
+        commits = get_all_commits()
+        authors = sorted({c["author"] for c in commits})
+    except Exception as e:
+        app.logger.exception("인덱스 페이지 로딩 실패")
+        return f"<pre>{type(e).__name__}: {e}</pre>", 500
     return render_template("index.html", periods=periods, authors=authors)
 
 
