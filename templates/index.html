@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>슈포트 회고 정리</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>슈포트 프로젝트 회고 정리</h1>
+    <p class="subtitle">스프린트를 선택하면 기승전결 구조의 기술 분석과 블로그 초안을 생성합니다.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="panel">
+      <div class="field">
+        <label for="author">작성자</label>
+        <select id="author">
+          {% for author in authors %}
+          <option value="{{ author }}">{{ author }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="field">
+        <label>기간 선택 (복수 선택 가능)</label>
+        <div class="period-list">
+          {% for period in periods %}
+          <label class="period-item">
+            <input type="checkbox" name="period" value="{{ period.name }}">
+            <span>{{ period.name }}</span>
+            <span class="period-range">{{ period.start }} ~ {{ period.end }}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <button id="analyze-btn" class="btn primary">기술 분석하기</button>
+      <button id="blog-btn" class="btn secondary" disabled>블로그 초안 생성</button>
+      <div id="status" class="status"></div>
+    </aside>
+
+    <main class="result">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="summary">기술 분석</button>
+        <button class="tab-btn" data-tab="blog">블로그 초안</button>
+      </div>
+
+      <section class="tab-panel" id="panel-summary">
+        <div class="card-header">
+          <span id="summary-badge" class="badge"></span>
+        </div>
+        <div id="summary-loading" class="loading hidden">
+          <div class="spinner"></div>
+          <p>기술 분석 생성 중입니다...</p>
+        </div>
+        <div id="summary-content" class="markdown-body"></div>
+        <div id="summary-empty" class="empty-state">
+          작성자와 기간을 선택하고 <strong>기술 분석하기</strong>를 눌러주세요.
+        </div>
+      </section>
+
+      <section class="tab-panel hidden" id="panel-blog">
+        <div class="card-header">
+          <span id="blog-badge" class="badge"></span>
+          <button id="copy-blog-btn" class="btn-link">복사</button>
+        </div>
+        <div id="blog-loading" class="loading hidden">
+          <div class="spinner"></div>
+          <p>블로그 초안 생성 중입니다...</p>
+        </div>
+        <div id="blog-content" class="markdown-body"></div>
+        <div id="blog-empty" class="empty-state">
+          기술 분석을 먼저 생성한 뒤 <strong>블로그 초안 생성</strong>을 눌러주세요.
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
