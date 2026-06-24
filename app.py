@@ -87,13 +87,21 @@ def commits_for_periods(commits: list[dict], periods: list[dict], period_names: 
     return sorted(result, key=lambda c: c["date"])
 
 
-def attach_diffs(commits: list[dict], max_commits: int = MAX_DIFF_COMMITS) -> list[dict]:
-    """핵심 구현 코드를 인용할 수 있도록, 가장 의미 있어 보이는 커밋 몇 개에 실제 diff를 붙인다."""
-    def score(c: dict) -> int:
-        keyword_bonus = 1000 if any(k in c["subject"].lower() for k in ("fix", "refactor", "버그", "수정", "개선")) else 0
-        return keyword_bonus + c["insertions"] + c["deletions"]
+MAX_DIFF_COMMIT_SIZE = 400  # 변경량(insertions+deletions)이 이보다 큰 커밋은 보일러플레이트일 가능성이 높고
+                            # diff 전체를 메모리에 올리는 비용도 커서 diff 후보에서 제외한다.
 
-    chosen_hashes = {c["hash"] for c in sorted(commits, key=score, reverse=True)[:max_commits]}
+
+def attach_diffs(commits: list[dict], max_commits: int = MAX_DIFF_COMMITS) -> list[dict]:
+    """핵심 구현 코드를 인용할 수 있도록, 작고 의미 있어 보이는 커밋 몇 개에만 실제 diff를 붙인다."""
+    def score(c: dict) -> int:
+        total = c["insertions"] + c["deletions"]
+        if total > MAX_DIFF_COMMIT_SIZE:
+            return -1
+        keyword_bonus = 1000 if any(k in c["subject"].lower() for k in ("fix", "refactor", "버그", "수정", "개선")) else 0
+        return keyword_bonus + total
+
+    candidates = [c for c in commits if score(c) >= 0]
+    chosen_hashes = {c["hash"] for c in sorted(candidates, key=score, reverse=True)[:max_commits]}
     for c in commits:
         if c["hash"] in chosen_hashes:
             c["diff"] = get_diff(Path(REPO_PATH), c["hash"])
@@ -112,6 +120,20 @@ def index():
     return render_template("index.html", periods=periods, authors=authors)
 
 
+@app.route("/api/commits")
+def api_commits():
+    commits = get_all_commits()
+    return jsonify([
+        {
+            "hash": c["hash"],
+            "date": c["date"],
+            "author": c["author"],
+            "subject": c["subject"],
+        }
+        for c in commits
+    ])
+
+
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
     data = request.get_json()
@@ -120,15 +142,17 @@ def api_analyze():
     if not author or not period_names:
         return jsonify({"error": "author와 periods가 필요합니다."}), 400
 
-    period_key = db.make_period_key(period_names)
-    cached = db.get_cached(author, period_key, "summary")
-    if cached:
-        return jsonify({"cached": True, **cached})
-
     commits = commits_for_periods(get_all_commits(), load_periods(), period_names)
     target_commits = [c for c in commits if c["author"] == author]
     if not target_commits:
         return jsonify({"error": "해당 작성자/기간에 커밋이 없습니다."}), 404
+    commit_hashes = [c["hash"] for c in target_commits]
+
+    period_key = db.make_period_key(period_names)
+    cached = db.get_cached(author, period_key, "summary")
+    if cached:
+        return jsonify({"cached": True, "commit_hashes": commit_hashes, **cached})
+
     target_commits = attach_diffs(target_commits)
 
     period_label = ", ".join(sorted(period_names))
@@ -137,7 +161,10 @@ def api_analyze():
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     db.save_cache(author, period_key, "summary", content, len(target_commits))
-    return jsonify({"cached": False, "content": content, "commit_count": len(target_commits)})
+    return jsonify({
+        "cached": False, "content": content, "commit_count": len(target_commits),
+        "commit_hashes": commit_hashes,
+    })
 
 
 @app.route("/api/blog", methods=["POST"])
@@ -148,17 +175,18 @@ def api_blog():
     if not author or not period_names:
         return jsonify({"error": "author와 periods가 필요합니다."}), 400
 
+    commits = commits_for_periods(get_all_commits(), load_periods(), period_names)
+    target_commits = [c for c in commits if c["author"] == author]
+    commit_hashes = [c["hash"] for c in target_commits]
+
     period_key = db.make_period_key(period_names)
     cached = db.get_cached(author, period_key, "blog")
     if cached:
-        return jsonify({"cached": True, **cached})
+        return jsonify({"cached": True, "commit_hashes": commit_hashes, **cached})
 
     summary_cached = db.get_cached(author, period_key, "summary")
     if not summary_cached:
         return jsonify({"error": "먼저 기술 분석을 생성해주세요."}), 400
-
-    commits = commits_for_periods(get_all_commits(), load_periods(), period_names)
-    target_commits = [c for c in commits if c["author"] == author]
 
     period_label = ", ".join(sorted(period_names))
     try:
@@ -166,7 +194,10 @@ def api_blog():
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     db.save_cache(author, period_key, "blog", content, len(target_commits))
-    return jsonify({"cached": False, "content": content, "commit_count": len(target_commits)})
+    return jsonify({
+        "cached": False, "content": content, "commit_count": len(target_commits),
+        "commit_hashes": commit_hashes,
+    })
 
 
 if __name__ == "__main__":
