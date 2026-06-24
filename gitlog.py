@@ -22,11 +22,13 @@ def ensure_repo(repo_url: str, repo_path: str) -> Path:
     return path
 
 
-def _parse_metadata(repo_path: Path, ref: str) -> list[dict]:
+def _parse_metadata(repo_path: Path, ref: str, since: str | None = None) -> list[dict]:
     fmt = FIELD_SEP.join(["%H", "%an", "%ae", "%ad", "%s", "%b"]) + RECORD_SEP
+    cmd = ["git", "-C", str(repo_path), "log", ref, f"--pretty=format:{fmt}", "--date=short"]
+    if since:
+        cmd.append(f"--since={since}")
     result = subprocess.run(
-        ["git", "-C", str(repo_path), "log", ref, f"--pretty=format:{fmt}", "--date=short"],
-        check=True, capture_output=True, text=True, encoding="utf-8",
+        cmd, check=True, capture_output=True, text=True, encoding="utf-8",
     )
     commits = []
     for record in result.stdout.split(RECORD_SEP):
@@ -48,10 +50,12 @@ def _parse_metadata(repo_path: Path, ref: str) -> list[dict]:
     return commits
 
 
-def _parse_shortstats(repo_path: Path, ref: str) -> dict[str, tuple[int, int, int]]:
+def _parse_shortstats(repo_path: Path, ref: str, since: str | None = None) -> dict[str, tuple[int, int, int]]:
+    cmd = ["git", "-C", str(repo_path), "log", ref, "--pretty=format:%H", "--shortstat"]
+    if since:
+        cmd.append(f"--since={since}")
     result = subprocess.run(
-        ["git", "-C", str(repo_path), "log", ref, "--pretty=format:%H", "--shortstat"],
-        check=True, capture_output=True, text=True, encoding="utf-8",
+        cmd, check=True, capture_output=True, text=True, encoding="utf-8",
     )
     stats: dict[str, tuple[int, int, int]] = {}
     current_hash = None
@@ -72,7 +76,7 @@ def _parse_shortstats(repo_path: Path, ref: str) -> dict[str, tuple[int, int, in
     return stats
 
 
-def get_diff(repo_path: Path, commit_hash: str, max_chars: int = 2500) -> str:
+def get_diff(repo_path: Path, commit_hash: str, max_chars: int = 1500) -> str:
     """단일 커밋의 unified diff를 가져온다 (커밋 메시지 제외, 코드 변경분만)."""
     result = subprocess.run(
         ["git", "-C", str(repo_path), "show", "--no-color", "--unified=2", "--pretty=format:", commit_hash],
@@ -84,11 +88,12 @@ def get_diff(repo_path: Path, commit_hash: str, max_chars: int = 2500) -> str:
     return diff
 
 
-def get_commits(repo_path: Path, branch: str | None = None) -> list[dict]:
-    """저장소의 커밋 목록을 author/date/message/변경통계가 포함된 dict 리스트로 반환한다."""
+def get_commits(repo_path: Path, branch: str | None = None, since: str | None = None) -> list[dict]:
+    """저장소의 커밋 목록을 author/date/message/변경통계가 포함된 dict 리스트로 반환한다.
+    since를 주면 그 이전 커밋은 git log 단계에서부터 제외해 메모리에 올리지 않는다."""
     ref = branch or "HEAD"
-    commits = _parse_metadata(repo_path, ref)
-    stats = _parse_shortstats(repo_path, ref)
+    commits = _parse_metadata(repo_path, ref, since)
+    stats = _parse_shortstats(repo_path, ref, since)
     for commit in commits:
         files_changed, insertions, deletions = stats.get(commit["hash"], (0, 0, 0))
         commit["files_changed"] = files_changed

@@ -8,6 +8,11 @@ import json
 import os
 from pathlib import Path
 
+try:
+    import resource  # Windows에는 없음 (로컬 개발 시 사용 불가, Render(Linux)에서만 동작)
+except ImportError:
+    resource = None
+
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, render_template, request
 
@@ -15,7 +20,7 @@ import db
 from gitlog import ensure_repo, get_commits, get_diff
 from summarizer import generate_blog_draft, generate_technical_analysis
 
-MAX_DIFF_COMMITS = 5
+MAX_DIFF_COMMITS = 3
 
 load_dotenv()
 
@@ -47,6 +52,13 @@ def require_basic_auth():
 _commits_cache: list[dict] | None = None
 
 
+def log_memory(label: str) -> None:
+    if resource is None:
+        return
+    rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    app.logger.info(f"[memory] {label}: {rss_mb:.1f} MB (peak RSS)")
+
+
 def load_periods() -> list[dict]:
     return json.loads(Path(PERIODS_PATH).read_text(encoding="utf-8"))
 
@@ -70,11 +82,14 @@ def get_all_commits() -> list[dict]:
         repo_path = Path(REPO_PATH)
         if not (repo_path / ".git").exists():
             ensure_repo(DEFAULT_REPO_URL, REPO_PATH)
-        commits = get_commits(repo_path)
+        periods = load_periods()
+        since = min((p["start"] for p in periods), default=None)
+        commits = get_commits(repo_path, since=since)
         alias_map = load_author_alias_map()
         for c in commits:
             c["author"] = alias_map.get(c["author"], c["author"])
         _commits_cache = commits
+        log_memory(f"get_all_commits 완료 (커밋 {len(commits)}개)")
     return _commits_cache
 
 
@@ -87,7 +102,7 @@ def commits_for_periods(commits: list[dict], periods: list[dict], period_names: 
     return sorted(result, key=lambda c: c["date"])
 
 
-MAX_DIFF_COMMIT_SIZE = 400  # 변경량(insertions+deletions)이 이보다 큰 커밋은 보일러플레이트일 가능성이 높고
+MAX_DIFF_COMMIT_SIZE = 200  # 변경량(insertions+deletions)이 이보다 큰 커밋은 보일러플레이트일 가능성이 높고
                             # diff 전체를 메모리에 올리는 비용도 커서 diff 후보에서 제외한다.
 
 
@@ -143,7 +158,7 @@ def api_analyze():
         return jsonify({"error": "author와 periods가 필요합니다."}), 400
 
     commits = commits_for_periods(get_all_commits(), load_periods(), period_names)
-    target_commits = [c for c in commits if c["author"] == author]
+    target_commits = [dict(c) for c in commits if c["author"] == author]
     if not target_commits:
         return jsonify({"error": "해당 작성자/기간에 커밋이 없습니다."}), 404
     commit_hashes = [c["hash"] for c in target_commits]
@@ -153,6 +168,7 @@ def api_analyze():
     if cached:
         return jsonify({"cached": True, "commit_hashes": commit_hashes, **cached})
 
+    log_memory(f"analyze 시작 ({author}, 커밋 {len(target_commits)}개)")
     target_commits = attach_diffs(target_commits)
 
     period_label = ", ".join(sorted(period_names))
@@ -161,6 +177,7 @@ def api_analyze():
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     db.save_cache(author, period_key, "summary", content, len(target_commits))
+    log_memory("analyze 완료")
     return jsonify({
         "cached": False, "content": content, "commit_count": len(target_commits),
         "commit_hashes": commit_hashes,
@@ -188,12 +205,14 @@ def api_blog():
     if not summary_cached:
         return jsonify({"error": "먼저 기술 분석을 생성해주세요."}), 400
 
+    log_memory(f"blog 시작 ({author}, 커밋 {len(target_commits)}개)")
     period_label = ", ".join(sorted(period_names))
     try:
         content = generate_blog_draft(author, period_label, target_commits, summary_cached["content"])
     except RuntimeError as e:
         return jsonify({"error": str(e)}), 500
     db.save_cache(author, period_key, "blog", content, len(target_commits))
+    log_memory("blog 완료")
     return jsonify({
         "cached": False, "content": content, "commit_count": len(target_commits),
         "commit_hashes": commit_hashes,
