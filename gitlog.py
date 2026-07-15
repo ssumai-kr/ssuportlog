@@ -1,5 +1,6 @@
 """git 저장소를 clone/pull하고 커밋 로그를 구조화된 데이터로 추출한다."""
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -11,14 +12,25 @@ SHORTSTAT_RE = re.compile(
 )
 
 
+def _run_git(cmd: list[str]) -> None:
+    """git 명령을 실행하고, 실패 시 stderr를 담아 RuntimeError로 다시 던진다.
+    (subprocess.CalledProcessError만으로는 배포 환경 로그에 실제 git 에러 메시지가 남지 않아 원인 파악이 어려웠다.)"""
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if result.returncode != 0:
+        raise RuntimeError(f"{' '.join(cmd)} 실패 (exit {result.returncode}): {result.stderr.strip()}")
+
+
 def ensure_repo(repo_url: str, repo_path: str) -> Path:
-    """repo_path에 이미 clone되어 있으면 pull, 없으면 clone한다."""
+    """repo_path에 이미 clone되어 있으면 pull, 없으면 clone한다.
+    이전 clone이 중간에 끊겨 .git 없이 파일만 남아있으면(예: 메모리 부족으로 워커가 죽은 경우)
+    git clone이 "destination path already exists" 로 영구히 실패하므로, 그 잔여물을 먼저 지운다."""
     path = Path(repo_path)
     if (path / ".git").exists():
-        subprocess.run(["git", "-C", str(path), "pull"], check=True)
+        _run_git(["git", "-C", str(path), "pull"])
     else:
-        path.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "clone", repo_url, str(path)], check=True)
+        if path.exists():
+            shutil.rmtree(path)
+        _run_git(["git", "clone", repo_url, str(path)])
     return path
 
 
