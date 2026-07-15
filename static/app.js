@@ -139,7 +139,11 @@ async function postJSON(url, body) {
   }
 
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "요청에 실패했습니다.");
+  if (!res.ok) {
+    const err = new Error(data.error || "요청에 실패했습니다.");
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -163,8 +167,14 @@ analyzeBtn.addEventListener("click", async () => {
     blogBtn.disabled = false;
   } catch (err) {
     setLoading("summary", false);
+    if (err.status === 404) {
+      els.summary.empty.textContent = "해당 기간 동안 커밋 내역이 없습니다.";
+      setStatus("해당 기간 동안 커밋 내역이 없습니다.");
+    } else {
+      els.summary.empty.textContent = "작성자와 기간을 선택하고 기술 분석하기를 눌러주세요.";
+      setStatus("오류: " + err.message);
+    }
     els.summary.empty.classList.remove("hidden");
-    setStatus("오류: " + err.message);
   } finally {
     analyzeBtn.disabled = false;
   }
@@ -185,8 +195,14 @@ blogBtn.addEventListener("click", async () => {
     highlightCommits(data.commit_hashes);
   } catch (err) {
     setLoading("blog", false);
+    if (err.status === 404) {
+      els.blog.empty.textContent = "해당 기간 동안 커밋 내역이 없습니다.";
+      setStatus("해당 기간 동안 커밋 내역이 없습니다.");
+    } else {
+      els.blog.empty.textContent = "기술 분석을 먼저 생성한 뒤 블로그 초안 생성을 눌러주세요.";
+      setStatus("오류: " + err.message);
+    }
     els.blog.empty.classList.remove("hidden");
-    setStatus("오류: " + err.message);
   } finally {
     blogBtn.disabled = false;
   }

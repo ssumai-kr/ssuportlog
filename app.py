@@ -4,8 +4,10 @@
     python app.py
     -> http://localhost:5000 접속
 """
+import calendar
 import json
 import os
+from datetime import date, timedelta
 from pathlib import Path
 
 try:
@@ -26,7 +28,7 @@ load_dotenv()
 
 DEFAULT_REPO_URL = "https://github.com/ssu-student-union/ssuport-frontend"
 REPO_PATH = "./repo"
-PERIODS_PATH = "config/periods.json"
+FIRST_SPRINT_START = date(2026, 1, 1)
 AUTHORS_PATH = "config/authors.json"
 BASIC_AUTH_USERNAME = os.environ.get("BASIC_AUTH_USERNAME")
 BASIC_AUTH_PASSWORD = os.environ.get("BASIC_AUTH_PASSWORD")
@@ -60,7 +62,26 @@ def log_memory(label: str) -> None:
 
 
 def load_periods() -> list[dict]:
-    return json.loads(Path(PERIODS_PATH).read_text(encoding="utf-8"))
+    """1차 스프린트 시작일부터 오늘까지 매월 1~15일/16~말일 단위로 스프린트 기간을 자동 생성한다.
+    (기간이 지날 때마다 config/periods.json을 수동으로 수정할 필요가 없도록 동적으로 계산한다.)"""
+    periods = []
+    cursor = FIRST_SPRINT_START
+    today = date.today()
+    idx = 1
+    while cursor <= today:
+        if cursor.day == 1:
+            end = cursor.replace(day=15)
+        else:
+            last_day = calendar.monthrange(cursor.year, cursor.month)[1]
+            end = cursor.replace(day=last_day)
+        periods.append({
+            "name": f"{idx}차 스프린트",
+            "start": cursor.isoformat(),
+            "end": end.isoformat(),
+        })
+        cursor = end + timedelta(days=1)
+        idx += 1
+    return periods
 
 
 def load_author_alias_map() -> dict[str, str]:

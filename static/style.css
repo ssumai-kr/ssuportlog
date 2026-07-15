@@ -53,6 +53,12 @@ header h1 {
   align-items: start;
 }
 
+.layout > * {
+  /* 그리드 아이템의 기본 min-width는 auto라 내부의 nowrap 콘텐츠(기간 범위, 커밋 제목 등) 때문에
+     트랙 자체가 뷰포트보다 넓어지는 "grid blowout"이 생긴다. 0으로 고정해 트랙 폭에 맞춰 줄어들게 한다. */
+  min-width: 0;
+}
+
 .panel {
   background: var(--panel-bg);
   border: 1px solid var(--border);
@@ -237,6 +243,24 @@ select:focus-visible, button:focus-visible {
   overflow-x: auto;
   font-size: 12px;
   -webkit-overflow-scrolling: touch;
+}
+
+.markdown-body a { overflow-wrap: break-word; }
+.markdown-body img { max-width: 100%; height: auto; }
+
+.markdown-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  white-space: nowrap;
 }
 
 .loading {
